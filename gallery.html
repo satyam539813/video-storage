@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GitHub Media Gallery</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --danger: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 20px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 10;
+  }
+  h1 { margin: 0 0 12px; font-size: 20px; }
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  input, select, button {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 14px;
+  }
+  input { flex: 1 1 140px; min-width: 120px; }
+  input#repo { flex: 2 1 200px; }
+  button.go {
+    background: #238636;
+    border-color: #2ea043;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.go:hover { background: #2ea043; }
+  .hint { color: var(--muted); font-size: 12px; margin: 10px 0 0; line-height: 1.5; }
+  .hint code { background: var(--card); padding: 1px 5px; border-radius: 4px; }
+  main {
+    padding: 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color .15s, transform .15s;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .thumb {
+    aspect-ratio: 16 / 9;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .thumb img, .thumb video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .thumb.file { font-size: 40px; background: var(--bg); }
+  .meta {
+    padding: 8px 10px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .size { color: var(--muted); flex-shrink: 0; }
+  .empty { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 40px; }
+  #status { padding: 0 20px; color: var(--muted); font-size: 13px; min-height: 20px; }
+  #status .error { color: var(--danger); }
+  #lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  #lightbox[hidden] { display: none; }
+  #lightbox-body { max-width: 100%; max-height: 100%; }
+  #lightbox-body img, #lightbox-body video { max-width: 100%; max-height: 85vh; display: block; }
+  #lightbox-body .dl { text-align: center; margin-top: 12px; }
+  #lightbox-body .dl a { color: var(--accent); text-decoration: none; font-size: 14px; }
+  #lightbox-close {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 32px;
+    cursor: pointer;
+    line-height: 1;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>GitHub Media Gallery</h1>
+  <form class="controls" id="controls">
+    <input id="repo" placeholder="owner/repo" value="satyam539813/video-storage" required>
+    <select id="source">
+      <option value="repo">Repository files</option>
+      <option value="release">Release assets</option>
+    </select>
+    <input id="path" placeholder="path (e.g. sample)">
+    <input id="tag" placeholder="tag (for releases)">
+    <input id="token" type="password" placeholder="token (private repos)">
+    <button class="go" type="submit">Load</button>
+  </form>
+  <p class="hint">
+    Public repos need no token. For private repos, use a fine-grained token with
+    <code>Contents: Read</code> (or a classic token with the <code>repo</code> scope).
+    The token is kept in this browser's session storage only. For private repos, the
+    file URLs are signed and expire — reload to refresh them.
+  </p>
+</header>
+<div id="status"></div>
+<main id="grid"></main>
+<div id="lightbox" hidden>
+  <button id="lightbox-close" title="Close">&times;</button>
+  <div id="lightbox-body"></div>
+</div>
+<script>
+const API = 'https://api.github.com';
+const IMAGE_EXTS = new Set(['png','jpg','jpeg','gif','webp','bmp','svg','avif','ico']);
+const VIDEO_EXTS = new Set(['mp4','webm','mov','m4v','ogv']);
+
+const $ = id => document.getElementById(id);
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+function fmtSize(bytes) {
+  if (bytes == null) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  if (bytes < 1024*1024*1024) return (bytes/1024/1024).toFixed(1) + ' MB';
+  return (bytes/1024/1024/1024).toFixed(2) + ' GB';
+}
+
+function headers(token) {
+  const h = { 'Accept': 'application/vnd.github+json' };
+  if (token) h['Authorization'] = 'Bearer ' + token;
+  return h;
+}
+
+async function gh(url, token) {
+  const res = await fetch(url, { headers: headers(token) });
+  if (!res.ok) {
+    let msg = 'HTTP ' + res.status;
+    try { const j = await res.json(); if (j.message) msg = j.message; } catch (e) {}
+    if (res.status === 401) msg = 'Bad token (401)';
+    if (res.status === 403) msg = 'Forbidden or rate-limited (403)';
+    if (res.status === 404) msg = 'Not found (404) — check repo, path, or tag';
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function ext(name) {
+  const i = name.lastIndexOf('.');
+  return i < 0 ? '' : name.slice(i + 1).toLowerCase();
+}
+
+async function loadRepoFiles(owner, repo, path, token) {
+  const url = `${API}/repos/${owner}/${repo}/contents/${path}`;
+  const items = await gh(url, token);
+  if (!Array.isArray(items)) throw new Error('Path is not a directory');
+  return items.filter(i => i.type === 'file').map(i => ({
+    name: i.name,
+    size: i.size,
+    url: i.download_url,
+    ext: ext(i.name)
+  }));
+}
+
+async function loadReleaseAssets(owner, repo, tag, token) {
+  const url = `${API}/repos/${owner}/${repo}/releases/tags/${tag}`;
+  const rel = await gh(url, token);
+  return (rel.assets || []).map(a => ({
+    name: a.name,
+    size: a.size,
+    url: a.browser_download_url,
+    ext: ext(a.name)
+  }));
+}
+
+function render(items) {
+  const grid = $('grid');
+  grid.innerHTML = '';
+  if (!items.length) {
+    grid.innerHTML = '<p class="empty">No media found.</p>';
+    return;
+  }
+  for (const item of items) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    const isImg = IMAGE_EXTS.has(item.ext);
+    const isVid = VIDEO_EXTS.has(item.ext);
+    let thumb;
+    if (isImg) {
+      thumb = `<div class="thumb"><img src="${esc(item.url)}" alt="${esc(item.name)}" loading="lazy"></div>`;
+    } else if (isVid) {
+      thumb = `<div class="thumb"><video src="${esc(item.url)}" preload="metadata" muted playsinline></video></div>`;
+    } else {
+      thumb = `<div class="thumb file">&#128196;</div>`;
+    }
+    card.innerHTML = thumb +
+      `<div class="meta"><span class="name" title="${esc(item.name)}">${esc(item.name)}</span>` +
+      `<span class="size">${fmtSize(item.size)}</span></div>`;
+    card.addEventListener('click', () => openLightbox(item, isImg, isVid));
+    grid.appendChild(card);
+  }
+}
+
+function openLightbox(item, isImg, isVid) {
+  const body = $('lightbox-body');
+  let media;
+  if (isImg) {
+    media = `<img src="${esc(item.url)}" alt="${esc(item.name)}">`;
+  } else if (isVid) {
+    media = `<video src="${esc(item.url)}" controls autoplay playsinline></video>`;
+  } else {
+    media = `<p style="color:#8b949e">No preview available.</p>`;
+  }
+  body.innerHTML = media +
+    `<div class="dl"><a href="${esc(item.url)}" download="${esc(item.name)}">&#11015; ${esc(item.name)}</a></div>`;
+  $('lightbox').hidden = false;
+}
+
+function closeLightbox() {
+  $('lightbox').hidden = true;
+  $('lightbox-body').innerHTML = '';
+}
+
+$('controls').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const repo = $('repo').value.trim();
+  const source = $('source').value;
+  const path = $('path').value.trim();
+  const tag = $('tag').value.trim();
+  const token = $('token').value.trim();
+  const status = $('status');
+  const grid = $('grid');
+
+  if (!repo.includes('/')) { status.innerHTML = '<span class="error">Enter a repo as owner/repo</span>'; return; }
+  const [owner, name] = repo.split('/');
+
+  if (token) sessionStorage.setItem('gh_token', token);
+
+  grid.innerHTML = '<p class="empty">Loading&hellip;</p>';
+  status.textContent = '';
+  try {
+    let items;
+    if (source === 'release') {
+      if (!tag) throw new Error('Enter a release tag');
+      items = await loadReleaseAssets(owner, name, tag, token);
+    } else {
+      items = await loadRepoFiles(owner, name, path, token);
+    }
+    render(items);
+    status.textContent = items.length + ' file(s)';
+  } catch (err) {
+    grid.innerHTML = '';
+    status.innerHTML = `<span class="error">${esc(err.message)}</span>`;
+  }
+});
+
+$('lightbox-close').addEventListener('click', closeLightbox);
+$('lightbox').addEventListener('click', (e) => { if (e.target === $('lightbox')) closeLightbox(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+
+// Restore a previously entered token for this browser session.
+(function init() {
+  const saved = sessionStorage.getItem('gh_token');
+  if (saved) $('token').value = saved;
+})();
+</script>
+</body>
+</html>

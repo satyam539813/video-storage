@@ -60,6 +60,7 @@ Rules of thumb:
 | `scripts/upload-release.sh` | Upload files to a GitHub release (no Git LFS needed) |
 | `scripts/upload-lfs.sh` | Track and push videos with Git LFS |
 | `scripts/list.sh` | List releases and their video assets |
+| `gallery.html` | Web UI to browse and play uploaded media |
 
 ## `convert.sh` — make any video GitHub-compatible
 
@@ -152,6 +153,28 @@ Requires `git-lfs` installed and a git repo with an `origin` remote.
 ./scripts/list.sh --repo OWNER/NAME            # list releases
 ./scripts/list.sh --repo OWNER/NAME --tag v1   # list assets in a release
 ```
+
+## Web UI gallery
+
+Open `gallery.html` in a browser (double-click it) to browse and play the media
+stored in a repository or release.
+
+- **Repository files** — uses the GitHub contents API. Works for public repos
+  with no token; private repos need a token with `Contents: Read`.
+- **Release assets** — uses the releases API. For private repos the browser must
+  be logged into GitHub (session cookie), so this is best for public repos or a
+  page opened on a machine where you're signed in.
+
+Token scopes:
+
+| Token type | Scope needed |
+|---|---|
+| Fine-grained | `Contents: Read` |
+| Classic | `repo` |
+
+Private-repo caveat: the file URLs returned by the contents API are **signed and
+expire** (they include a `?token=...` parameter). Reload the gallery to refresh
+them; don't bookmark individual media URLs.
 
 ## Caveats
 
