@@ -61,6 +61,8 @@ Rules of thumb:
 | `scripts/upload-lfs.sh` | Track and push videos with Git LFS |
 | `scripts/list.sh` | List releases and their video assets |
 | `gallery.html` | Web UI to browse and play uploaded media |
+| `uploader.html` | Web UI to drag-and-drop upload media |
+| `scripts/upload-proxy.py` | Local proxy: browser → GitHub release assets (large files) |
 
 ## `convert.sh` — make any video GitHub-compatible
 
@@ -175,6 +177,37 @@ Token scopes:
 Private-repo caveat: the file URLs returned by the contents API are **signed and
 expire** (they include a `?token=...` parameter). Reload the gallery to refresh
 them; don't bookmark individual media URLs.
+
+## Web uploader (drag & drop)
+
+Open `uploader.html` in a browser to drag-and-drop upload videos and photos.
+
+| Target | Limit | Auth |
+|---|---|---|
+| Repository `media/` (contents API) | 20 MB per file (verified ceiling; 502 above it) | token with `Contents: Read and write` |
+| Release assets (via local proxy) | 2 GiB per file, no total cap | none — the proxy uses your local `gh` login |
+
+Auto mode routes images to the repository and everything else to release assets.
+Duplicate names are renamed automatically (`video-2.mp4`) instead of overwritten.
+
+### Large files need the local proxy
+
+GitHub's release-asset upload host (`uploads.github.com`) and its Git LFS batch
+API send **no CORS headers**, so browsers cannot upload there directly. Only
+`api.github.com` is browser-accessible. To drag-and-drop large videos, start:
+
+```bash
+python3 scripts/upload-proxy.py        # listens on http://127.0.0.1:8787
+```
+
+Then reload `uploader.html` — the proxy badge turns green. The proxy streams the
+upload through the already-authenticated `gh` CLI (no token in the browser) and
+files become release assets, consuming no LFS quota.
+
+With a 1 GB file the progress bar fills quickly (browser → localhost is fast);
+the "uploading to GitHub…" phase is the real network transfer and depends on
+your connection speed. LFS is a poor fit for 1 GB files on the free tier: one
+file would consume the entire 1 GB storage quota.
 
 ## Caveats
 
