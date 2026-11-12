@@ -204,6 +204,15 @@ Then reload `uploader.html` — the proxy badge turns green. The proxy streams t
 upload through the already-authenticated `gh` CLI (no token in the browser) and
 files become release assets, consuming no LFS quota.
 
+To keep the proxy always running (starts at login, survives reboots), install it
+as a systemd user service instead of starting it by hand:
+
+```bash
+cp scripts/upload-proxy.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now upload-proxy.service
+```
+
 With a 1 GB file the progress bar fills quickly (browser → localhost is fast);
 the "uploading to GitHub…" phase is the real network transfer and depends on
 your connection speed. LFS is a poor fit for 1 GB files on the free tier: one

@@ -1,0 +1,11 @@
+[Unit]
+Description=GitHub video storage upload proxy
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/Downloads/github-video-storage/scripts/upload-proxy.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
