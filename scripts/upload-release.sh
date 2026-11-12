@@ -73,7 +73,7 @@ if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
   gh release create "$TAG" --repo "$REPO" --title "$TITLE" --notes "${NOTES:-Video storage}"
 fi
 
-UPLOAD_ARGS=(upload "$TAG" "${FILES[@]}" --repo "$REPO")
+UPLOAD_ARGS=(release upload "$TAG" "${FILES[@]}" --repo "$REPO")
 [ "$CLOBBER" -eq 1 ] && UPLOAD_ARGS+=(--clobber)
 
 printf 'Uploading %s file(s) to %s@%s ...\n' "${#FILES[@]}" "$REPO" "$TAG"
