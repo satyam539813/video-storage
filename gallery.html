@@ -140,10 +140,11 @@
     <button class="go" type="submit">Load</button>
   </form>
   <p class="hint">
-    Public repos need no token. For private repos, use a fine-grained token with
-    <code>Contents: Read</code> (or a classic token with the <code>repo</code> scope).
-    The token is kept in this browser's session storage only. For private repos, the
-    file URLs are signed and expire — reload to refresh them.
+    Public repos work with no token — Git LFS files stream through
+    <code>media.githubusercontent.com</code>. Private repos need a fine-grained token with
+    <code>Contents: Read</code> (or a classic token with the <code>repo</code> scope);
+    the token stays in this browser's session storage, and the signed file URLs expire —
+    reload to refresh them.
   </p>
 </header>
 <div id="status"></div>
@@ -201,12 +202,25 @@ async function loadRepoFiles(owner, repo, path, token) {
   const url = `${API}/repos/${owner}/${repo}/contents/${path}`;
   const items = await gh(url, token);
   if (!Array.isArray(items)) throw new Error('Path is not a directory');
-  return items.filter(i => i.type === 'file').map(i => ({
-    name: i.name,
-    size: i.size,
-    url: i.download_url,
-    ext: ext(i.name)
-  }));
+  return items.filter(i => i.type === 'file').map(i => {
+    // LFS-tracked files appear as tiny pointer blobs in the API. Without a
+    // token, raw.githubusercontent.com serves the pointer text rather than
+    // the media, so route through GitHub's LFS media proxy instead.
+    const isLikelyLfs = i.size < 1000;
+    let itemUrl = i.download_url;
+    let fallback = '';
+    if (isLikelyLfs && !token) {
+      itemUrl = `https://media.githubusercontent.com/media/${owner}/${repo}/HEAD/${i.path}`;
+      fallback = i.download_url;
+    }
+    return {
+      name: i.name,
+      size: i.size,
+      url: itemUrl,
+      fallback: fallback,
+      ext: ext(i.name)
+    };
+  });
 }
 
 async function loadReleaseAssets(owner, repo, tag, token) {
@@ -243,6 +257,12 @@ function render(items) {
     card.innerHTML = thumb +
       `<div class="meta"><span class="name" title="${esc(item.name)}">${esc(item.name)}</span>` +
       `<span class="size">${fmtSize(item.size)}</span></div>`;
+    const mediaEl = card.querySelector('img, video');
+    if (mediaEl && item.fallback) {
+      mediaEl.addEventListener('error', () => {
+        if (mediaEl.src !== item.fallback) mediaEl.src = item.fallback;
+      });
+    }
     card.addEventListener('click', () => openLightbox(item, isImg, isVid));
     grid.appendChild(card);
   }
@@ -260,6 +280,12 @@ function openLightbox(item, isImg, isVid) {
   }
   body.innerHTML = media +
     `<div class="dl"><a href="${esc(item.url)}" download="${esc(item.name)}">&#11015; ${esc(item.name)}</a></div>`;
+  const el = body.querySelector('img, video');
+  if (el && item.fallback) {
+    el.addEventListener('error', () => {
+      if (el.src !== item.fallback) el.src = item.fallback;
+    });
+  }
   $('lightbox').hidden = false;
 }
 
